@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Presentation Run-Through Timer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :focus-visible { outline: 3px solid #8b5cf6; outline-offset: 2px; }
+  </style>
+</head>
+<body class="bg-purple-50 min-h-screen">
+  <div class="max-w-3xl mx-auto px-4 py-8">
+    <header class="mb-8 text-center">
+      <div class="text-4xl mb-2" aria-hidden="true">🎤</div>
+      <h1 class="text-3xl font-bold text-purple-900">Presentation Run-Through Timer</h1>
+      <p class="text-purple-600 mt-2">Add sections, allocate time, then run through with live countdown.</p>
+    </header>
+
+    <!-- SETUP PANEL -->
+    <div id="setupPanel">
+      <div class="bg-white rounded-xl shadow p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-gray-800">Sections</h2>
+          <button onclick="addSection()"
+            class="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-4 py-2 rounded-lg focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
+            + Add Section
+          </button>
+        </div>
+        <div id="sectionList" class="space-y-3 mb-4"></div>
+        <div id="totalTime" class="text-sm text-gray-600 text-right font-medium"></div>
+      </div>
+
+      <button onclick="startRunThrough()"
+        class="w-full bg-purple-700 hover:bg-purple-800 text-white font-bold py-4 rounded-xl text-lg focus:ring-2 focus:ring-offset-2 focus:ring-purple-600 transition-colors">
+        ▶ Start Run-Through
+      </button>
+      <p class="text-center text-xs text-gray-400 mt-2">Keyboard: <kbd class="bg-gray-100 rounded px-1">Space</kbd> = pause/resume &nbsp; <kbd class="bg-gray-100 rounded px-1">N</kbd> = next section</p>
+    </div>
+
+    <!-- RUN PANEL -->
+    <div id="runPanel" class="hidden">
+      <!-- Current section -->
+      <div id="currentCard" class="bg-white rounded-xl shadow p-8 mb-6 text-center">
+        <div class="text-sm font-medium text-purple-500 uppercase tracking-wide mb-1" id="sectionProgress"></div>
+        <h2 class="text-2xl font-bold text-gray-900 mb-4" id="currentSection"></h2>
+        <div id="countdown" class="text-7xl font-mono font-bold mb-4"></div>
+        <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden mb-6" role="progressbar" id="sectionProgressBar" aria-valuemin="0" aria-valuemax="100">
+          <div id="progressFill" class="h-4 rounded-full transition-colors duration-300"></div>
+        </div>
+        <div class="flex justify-center gap-4">
+          <button onclick="togglePause()" id="pauseBtn"
+            class="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-6 py-3 rounded-xl focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
+            ⏸ Pause
+          </button>
+          <button onclick="nextSection()"
+            class="bg-gray-700 hover:bg-gray-800 text-white font-semibold px-6 py-3 rounded-xl focus:ring-2 focus:ring-offset-2 focus:ring-gray-600">
+            Next ▶
+          </button>
+          <button onclick="stopRunThrough()"
+            class="bg-red-500 hover:bg-red-600 text-white font-semibold px-6 py-3 rounded-xl focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+            ✕ Stop
+          </button>
+        </div>
+      </div>
+
+      <!-- Section queue -->
+      <div class="bg-white rounded-xl shadow p-4" id="queuePanel">
+        <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Up Next</h3>
+        <div id="queue" class="space-y-1"></div>
+      </div>
+    </div>
+
+    <!-- REVIEW PANEL -->
+    <div id="reviewPanel" class="hidden">
+      <h2 class="text-xl font-bold text-gray-900 mb-4 text-center">Run-Through Review</h2>
+      <div id="reviewRows" class="space-y-3 mb-6"></div>
+      <button onclick="resetAll()"
+        class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-xl focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
+        ↩ Back to Setup
+      </button>
+    </div>
+  </div>
+
+  <script>
+    let sections = [
+      { id: 1, name: 'Introduction', minutes: 2 },
+      { id: 2, name: 'Problem Statement', minutes: 3 },
+      { id: 3, name: 'Solution Overview', minutes: 5 },
+      { id: 4, name: 'Demo', minutes: 5 },
+      { id: 5, name: 'Q&A', minutes: 3 },
+    ];
+    let nextId = 6;
+
+    // Run state
+    let runSections = [];
+    let currentIdx = 0;
+    let secondsLeft = 0;
+    let timerInterval = null;
+    let paused = false;
+    let sectionStartTime = null;
+    let elapsed = [];
+
+    function addSection() {
+      sections.push({ id: nextId++, name: 'Section ' + sections.length, minutes: 3 });
+      renderSetup();
+    }
+
+    function removeSection(id) {
+      sections = sections.filter(s => s.id !== id);
+      renderSetup();
+    }
+
+    function updateSection(id, field, val) {
+      const s = sections.find(s => s.id === id);
+      if (s) s[field] = field === 'name' ? val : parseFloat(val) || 0;
+      renderTotal();
+    }
+
+    function renderTotal() {
+      const total = sections.reduce((a, s) => a + (s.minutes || 0), 0);
+      const m = Math.floor(total), sec = Math.round((total % 1) * 60);
+      document.getElementById('totalTime').textContent = `Total: ${m}:${String(sec).padStart(2,'0')} (${total.toFixed(1)} min)`;
+    }
+
+    function renderSetup() {
+      document.getElementById('sectionList').innerHTML = sections.map((s, i) => `
+        <div class="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+          <span class="text-gray-400 text-sm w-5 text-center">${i + 1}</span>
+          <input type="text" value="${s.name}" placeholder="Section name"
+            onchange="updateSection(${s.id},'name',this.value)"
+            class="flex-1 bg-transparent text-sm font-medium text-gray-800 border-b border-dashed border-gray-300 focus:outline-none focus:border-purple-400 min-w-0"
+            aria-label="Section name" />
+          <label class="text-xs text-gray-500 whitespace-nowrap">Minutes</label>
+          <input type="number" value="${s.minutes}" min="0.5" max="120" step="0.5"
+            onchange="updateSection(${s.id},'minutes',this.value)"
+            class="w-16 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-2 focus:ring-purple-300 bg-white"
+            aria-label="Allocated minutes" />
+          <button onclick="removeSection(${s.id})" class="text-gray-400 hover:text-red-500 text-xl leading-none" aria-label="Remove section">&times;</button>
+        </div>`).join('');
+      renderTotal();
+    }
+
+    function fmtTime(secs) {
+      const m = Math.floor(Math.abs(secs) / 60);
+      const s = Math.abs(secs) % 60;
+      return (secs < 0 ? '-' : '') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    }
+
+    function startRunThrough() {
+      if (sections.length === 0) return;
+      runSections = sections.map(s => ({ ...s, allocated: s.minutes * 60 }));
+      elapsed = [];
+      currentIdx = 0;
+      paused = false;
+      sectionStartTime = Date.now();
+      secondsLeft = runSections[0].allocated;
+
+      document.getElementById('setupPanel').classList.add('hidden');
+      document.getElementById('runPanel').classList.remove('hidden');
+      document.getElementById('reviewPanel').classList.add('hidden');
+
+      updateRunUI();
+      timerInterval = setInterval(tick, 1000);
+    }
+
+    function tick() {
+      if (paused) return;
+      secondsLeft--;
+      if (secondsLeft <= -(runSections[currentIdx].allocated)) {
+        // Auto-advance
+        advanceSection(true);
+      }
+      updateRunUI();
+    }
+
+    function updateRunUI() {
+      const s = runSections[currentIdx];
+      document.getElementById('sectionProgress').textContent = `Section ${currentIdx + 1} of ${runSections.length}`;
+      document.getElementById('currentSection').textContent = s.name;
+      document.getElementById('countdown').textContent = fmtTime(secondsLeft);
+
+      const used = s.allocated - secondsLeft;
+      const pct = Math.min(100, Math.max(0, (used / s.allocated) * 100));
+      const fill = document.getElementById('progressFill');
+      fill.style.width = pct + '%';
+      if (pct >= 100) { fill.className = 'h-4 rounded-full transition-colors duration-300 bg-red-500'; }
+      else if (pct >= 80) { fill.className = 'h-4 rounded-full transition-colors duration-300 bg-yellow-400'; }
+      else { fill.className = 'h-4 rounded-full transition-colors duration-300 bg-purple-500'; }
+      document.getElementById('sectionProgressBar').setAttribute('aria-valuenow', pct.toFixed(0));
+
+      // Set countdown color
+      const cd = document.getElementById('countdown');
+      if (secondsLeft < 0) cd.className = 'text-7xl font-mono font-bold mb-4 text-red-600';
+      else if (secondsLeft <= s.allocated * 0.2) cd.className = 'text-7xl font-mono font-bold mb-4 text-yellow-600';
+      else cd.className = 'text-7xl font-mono font-bold mb-4 text-gray-900';
+
+      // Queue
+      const remaining = runSections.slice(currentIdx + 1);
+      document.getElementById('queue').innerHTML = remaining.length === 0
+        ? '<p class="text-gray-400 text-sm">This is the last section.</p>'
+        : remaining.map((r, i) => `
+          <div class="flex justify-between text-sm py-1 border-b border-gray-100 last:border-0">
+            <span class="text-gray-700">${i + 2 + currentIdx}. ${r.name}</span>
+            <span class="text-gray-400">${r.minutes} min</span>
+          </div>`).join('');
+    }
+
+    function advanceSection(auto) {
+      const actualSecs = runSections[currentIdx].allocated - secondsLeft;
+      elapsed.push({ ...runSections[currentIdx], actualSecs });
+
+      currentIdx++;
+      if (currentIdx >= runSections.length) {
+        stopRunThrough(true);
+        return;
+      }
+      sectionStartTime = Date.now();
+      secondsLeft = runSections[currentIdx].allocated;
+      if (!auto && !paused) {}
+    }
+
+    function nextSection() { advanceSection(false); updateRunUI(); }
+
+    function togglePause() {
+      paused = !paused;
+      document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+    }
+
+    function stopRunThrough(finished) {
+      clearInterval(timerInterval);
+      // Capture current section if not finished
+      if (!finished) {
+        const actualSecs = runSections[currentIdx].allocated - secondsLeft;
+        elapsed.push({ ...runSections[currentIdx], actualSecs });
+        for (let i = currentIdx + 1; i < runSections.length; i++) {
+          elapsed.push({ ...runSections[i], actualSecs: 0 });
+        }
+      }
+      document.getElementById('runPanel').classList.add('hidden');
+      showReview();
+    }
+
+    function showReview() {
+      document.getElementById('reviewPanel').classList.remove('hidden');
+      document.getElementById('reviewRows').innerHTML = elapsed.map(s => {
+        const planned = s.allocated;
+        const actual = s.actualSecs;
+        const diff = actual - planned;
+        const over = diff > 0;
+        const status = actual === 0 ? 'Skipped' : over ? `+${fmtTime(diff)} over` : diff < 0 ? `${fmtTime(Math.abs(diff))} under` : 'On time';
+        const color = actual === 0 ? 'text-gray-400' : over ? 'text-red-600' : diff < 0 ? 'text-green-600' : 'text-gray-700';
+        return `
+          <div class="bg-white rounded-xl p-4 shadow-sm flex justify-between items-center">
+            <div>
+              <div class="font-medium text-gray-900">${s.name}</div>
+              <div class="text-sm text-gray-500">Planned: ${fmtTime(planned)} &nbsp;|&nbsp; Actual: ${fmtTime(actual)}</div>
+            </div>
+            <div class="text-right font-bold ${color}">${status}</div>
+          </div>`;
+      }).join('');
+    }
+
+    function resetAll() {
+      document.getElementById('setupPanel').classList.remove('hidden');
+      document.getElementById('runPanel').classList.add('hidden');
+      document.getElementById('reviewPanel').classList.add('hidden');
+      clearInterval(timerInterval);
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', e => {
+      if (!document.getElementById('runPanel').classList.contains('hidden')) {
+        if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+        if (e.key === 'n' || e.key === 'N') { nextSection(); }
+      }
+    });
+
+    renderSetup();
+  </script>
+</body>
+</html>
